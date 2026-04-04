@@ -152,7 +152,7 @@ class CNNLayer(nn.Module):
         for _ in range(num_layers):
             layers.append(nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1))
             layers.append(activation())
-            init_fn(layers[-2].weight, gain=gain)
+            init_fn(layers[-2].weigMht, gain=gain)
             nn.init.constant_(layers[-2].bias, 0)
             in_channels = out_channels
             out_channels *= 2
@@ -241,5 +241,263 @@ class RNNLayer(nn.Module):
 #     loss = torch.where(diff < huber_delta, 0.5 * diff ** 2, huber_delta * (diff - 0.5 * huber_delta))
 #     return loss.mean()
 
+
+
+
+def infer_checkpoint(path=None, map_location="cpu"):
+    """Load a checkpoint and expose actor/critic weights for inference.
+
+    Args:
+        path: checkpoint file path or a directory containing checkpoint files.
+        map_location: device mapping passed to ``torch.load``.
+
+    Returns:
+        A dictionary with loaded checkpoint and extracted actor/critic state dicts.
+    """
+    if path is None:
+        return None
+
+    checkpoint_path = path
+    if os.path.isdir(path):
+        candidates = [
+            os.path.join(path, name)
+            for name in os.listdir(path)
+            if name.endswith((".pt", ".pth"))
+        ]
+        if not candidates:
+            raise FileNotFoundError(f"No checkpoint file found in directory: {path}")
+        checkpoint_path = max(candidates, key=os.path.getmtime)
+
+    checkpoint = torch.load(checkpoint_path, map_location=map_location)
+
+    if isinstance(checkpoint, dict):
+        actor_state_dict = checkpoint.get("actor")
+        critic_state_dict = checkpoint.get("critic")
+    else:
+        actor_state_dict = None
+        critic_state_dict = None
+
+    return {
+        "checkpoint_path": checkpoint_path,
+        "checkpoint": checkpoint,
+        "actor_state_dict": actor_state_dict,
+        "critic_state_dict": critic_state_dict,
+    }
+
+
+def plot_assignment_snapshot(snapshot, save_path=None, show=True, dpi=140, uav_paths=None):
+    """Draw a two-panel assignment figure without partition boundaries.
+
+    Args:
+        snapshot: dict returned by MultiUAVEnv.get_visualization_snapshot().
+        save_path: optional output path (png/jpg).
+        show: whether to display the plot window.
+        dpi: figure DPI when saving.
+        uav_paths: optional UAV trajectories with shape (num_uav, T, 2) or
+            list of arrays each shaped (T, 2).
+
+    Returns:
+        (fig, axes) tuple from matplotlib.
+    """
+    required_keys = {
+        "user_positions",
+        "assignment",
+        "uav_positions",
+        "mbs_position",
+        "map_min",
+        "map_max",
+    }
+    missing_keys = required_keys.difference(snapshot.keys())
+    if missing_keys:
+        raise KeyError(f"Snapshot missing keys: {sorted(missing_keys)}")
+
+    user_positions = np.asarray(snapshot["user_positions"], dtype=np.float32)
+    assignment = np.asarray(snapshot["assignment"], dtype=np.int32)
+    uav_positions = np.asarray(snapshot["uav_positions"], dtype=np.float32)
+    mbs_position = np.asarray(snapshot["mbs_position"], dtype=np.float32)
+    map_min = float(snapshot["map_min"])
+    map_max = float(snapshot["map_max"])
+
+    if user_positions.ndim != 2 or user_positions.shape[1] != 2:
+        raise ValueError("user_positions must have shape (N, 2)")
+
+    num_uavs = int(uav_positions.shape[0])
+    mbs_user_color = "#1f77b4"
+    server_colors = [mbs_user_color, "#2ca02c", "#d62728", "#ff7f0e", "#9467bd", "#8c564b"]
+    uav_marker_colors = ["red", "blue", "green", "purple", "orange"]
+    server_labels = ["mBS"] + [f"UAV {i}" for i in range(num_uavs)]
+
+    normalized_paths = None
+    if uav_paths is not None:
+        if isinstance(uav_paths, np.ndarray):
+            if uav_paths.ndim != 3 or uav_paths.shape[0] != num_uavs or uav_paths.shape[2] != 2:
+                raise ValueError("uav_paths ndarray must have shape (num_uav, T, 2)")
+            normalized_paths = [uav_paths[i] for i in range(num_uavs)]
+        else:
+            if len(uav_paths) != num_uavs:
+                raise ValueError("uav_paths list length must match number of UAVs")
+            normalized_paths = [np.asarray(path, dtype=np.float32) for path in uav_paths]
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5), constrained_layout=True)
+
+    # Left: raw users + mBS-served users only (pre-assignment style view)
+    ax0 = axes[0]
+    ax0.scatter(
+        user_positions[:, 0],
+        user_positions[:, 1],
+        s=14,
+        facecolors="none",
+        edgecolors="#1f77b4",
+        linewidths=0.8,
+    )
+
+    mbs_served_mask = assignment == 0
+    if np.any(mbs_served_mask):
+        ax0.scatter(
+            user_positions[mbs_served_mask, 0],
+            user_positions[mbs_served_mask, 1],
+            s=20,
+            marker="v",
+            color=server_colors[0],
+            alpha=0.9,
+            label="mBS",
+        )
+
+    # Mark UAV positions explicitly (UAV 0 in red, UAV 1 in blue)
+    for i in range(num_uavs):
+        marker_color = uav_marker_colors[i % len(uav_marker_colors)]
+        if normalized_paths is not None and normalized_paths[i].shape[0] >= 2:
+            ax0.plot(
+                normalized_paths[i][:, 0],
+                normalized_paths[i][:, 1],
+                color=marker_color,
+                linestyle="-",
+                linewidth=1.4,
+                alpha=0.85,
+                zorder=3,
+            )
+        ax0.scatter(
+            uav_positions[i, 0],
+            uav_positions[i, 1],
+            marker="s",
+            s=70,
+            c=marker_color,
+            edgecolors="k",
+            linewidths=0.8,
+            zorder=4,
+            label=f"UAV {i}",
+        )
+
+    ax0.set_xlim(map_min, map_max)
+    ax0.set_ylim(map_min, map_max)
+    ax0.set_aspect("equal", adjustable="box")
+    ax0.grid(True, alpha=0.25)
+
+    # Right: users grouped by selected server (same color as serving UAV)
+    ax1 = axes[1]
+
+    # mBS-served users
+    mbs_mask = assignment == 0
+    if np.any(mbs_mask):
+        ax1.scatter(
+            user_positions[mbs_mask, 0],
+            user_positions[mbs_mask, 1],
+            s=16,
+            marker="o",
+            facecolors="none",
+            edgecolors=mbs_user_color,
+            linewidths=0.95,
+            label="mBS-served users",
+        )
+
+    # UAV-served users (same color as serving UAV marker)
+    for i in range(num_uavs):
+        mask = assignment == (i + 1)
+        if not np.any(mask):
+            continue
+        marker_color = uav_marker_colors[i % len(uav_marker_colors)]
+        ax1.scatter(
+            user_positions[mask, 0],
+            user_positions[mask, 1],
+            s=16,
+            marker="o",
+            facecolors="none",
+            edgecolors=marker_color,
+            linewidths=0.95,
+            label=f"UAV {i}-served users",
+        )
+
+    unsatisfied_mask = assignment < 0
+    if np.any(unsatisfied_mask):
+        ax1.scatter(
+            user_positions[unsatisfied_mask, 0],
+            user_positions[unsatisfied_mask, 1],
+            s=16,
+            marker="x",
+            color="#7f7f7f",
+            linewidths=0.8,
+            label="Unserved",
+        )
+
+    # Plot base-station positions for reference
+    ax1.scatter(
+        mbs_position[0],
+        mbs_position[1],
+        marker="s",
+        s=70,
+        c=mbs_user_color,
+        edgecolors="k",
+        linewidths=0.9,
+        zorder=4,
+        label="mBS",
+    )
+    for i in range(num_uavs):
+        marker_color = uav_marker_colors[i % len(uav_marker_colors)]
+        if normalized_paths is not None and normalized_paths[i].shape[0] >= 2:
+            ax1.plot(
+                normalized_paths[i][:, 0],
+                normalized_paths[i][:, 1],
+                color=marker_color,
+                linestyle="-",
+                linewidth=1.4,
+                alpha=0.85,
+                zorder=3,
+            )
+        ax1.scatter(
+            uav_positions[i, 0],
+            uav_positions[i, 1],
+            marker="s",
+            s=70,
+            c=marker_color,
+            edgecolors="k",
+            linewidths=0.8,
+            zorder=4,
+            label=f"UAV {i}",
+        )
+
+    ax1.set_xlim(map_min, map_max)
+    ax1.set_ylim(map_min, map_max)
+    ax1.set_aspect("equal", adjustable="box")
+    ax1.grid(True, alpha=0.25)
+    # Remove duplicate legend labels from repeated scatter calls.
+    handles, labels = ax1.get_legend_handles_labels()
+    unique = {}
+    for h, l in zip(handles, labels):
+        if l not in unique:
+            unique[l] = h
+    ax1.legend(loc="upper center", bbox_to_anchor=(0.5, 1.12), ncol=max(2, num_uavs + 1), frameon=True, fontsize=8)
+
+    if save_path is not None:
+        out_dir = os.path.dirname(save_path)
+        if out_dir:
+            os.makedirs(out_dir, exist_ok=True)
+        fig.savefig(save_path, dpi=dpi, bbox_inches="tight")
+
+    if show:
+        plt.show()
+    else:
+        plt.close(fig)
+
+    return fig, axes
 
 
