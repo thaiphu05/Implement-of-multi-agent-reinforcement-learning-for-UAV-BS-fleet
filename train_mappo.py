@@ -10,39 +10,36 @@ from Model.MAPPOTrainer import R_MAPPOTrainer
 from Model.RolloutBuffer import MultiAgentRolloutBuffer
 
 
-def build_hotspot_users(num_users=250, map_limit=1000.0, rate_threshold=20e6, rate_mbs=100e6, seed=42):
+def build_hotspot_users(num_users=250, map_limit=1000.0, rate_threshold=20e6, rate_mbs=20e6, seed=42):
     rng = np.random.default_rng(seed)
     hotspot_centers = np.array([
-        [-600.0, -600.0],
-        [600.0, -600.0],
-        [-600.0, 600.0],
-        [600.0, 600.0],
-        [0.0, 0.0],
+        [-500.0, -500.0],
+        [500.0, -500.0],
+        [-500.0, 500.0],
+        [500.0, 500.0],
     ], dtype=np.float32)
     hotspot_std = 300.0
     
-    
     user_matrix = []
+    for center in hotspot_centers:
+        num_users_in_hotspot = num_users // len(hotspot_centers)
+        users_x = rng.normal(loc=center[0], scale=hotspot_std, size=num_users_in_hotspot)
+        users_y = rng.normal(loc=center[1], scale=hotspot_std, size=num_users_in_hotspot)
+        for x, y in zip(users_x, users_y):
+            x_clipped = np.clip(x, -map_limit + 20, map_limit - 20)
+            y_clipped = np.clip(y, -map_limit + 20, map_limit - 20)
+            if(x+y > 0):
+                user_matrix.append((float(x_clipped), float(y_clipped), rate_mbs))
+            else:
+                user_matrix.append((float(x_clipped), float(y_clipped), rate_threshold))
     
-    
-    # for center in hotspot_centers:
-    #     num_users_in_hotspot = num_users // len(hotspot_centers)
-    #     users_x = rng.normal(loc=center[0], scale=hotspot_std, size=num_users_in_hotspot)
-    #     users_y = rng.normal(loc=center[1], scale=hotspot_std, size=num_users_in_hotspot)
-    #     for x, y in zip(users_x, users_y):
-    #         x_clipped = np.clip(x, -map_limit, map_limit)
-    #         y_clipped = np.clip(y, -map_limit, map_limit)
-    #         if(x+y > 0):
-    #             user_matrix.append((float(x_clipped), float(y_clipped), rate_mbs))
-    #         else:
-    #             user_matrix.append((float(x_clipped), float(y_clipped), rate_threshold))
-    
-    for _ in range(num_users):
-        x = float(rng.uniform(-1000.0, 1000.0))
-        y = float(rng.uniform(-1000.0, 1000.0))
-        user_matrix.append((x, y, 20e6)) 
+    # for _ in range(num_users):
+    #     x = float(rng.uniform(-1000.0, 1000.0))
+    #     y = float(rng.uniform(-1000.0, 1000.0))
+    #     user_matrix.append((x, y, 20e6)) 
 
     return user_matrix
+
 
 
 def parse_args():
@@ -55,6 +52,7 @@ def parse_args():
     parser.add_argument("--hidden_dims", type=int, nargs="+", default=[1024, 512])
     parser.add_argument("--rate_threshold", type=float, default=20e6)
     parser.add_argument("--slot_length", type=float, default=1)
+    parser.add_argument("--uav_k_factor", type=float, default=50.0)
 
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--critic_lr", type=float, default=1e-4)
@@ -71,7 +69,7 @@ def parse_args():
     parser.add_argument("--max_grad_norm", type=float, default=10.0)
 
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--save_interval", type=int, default=500)
+    parser.add_argument("--save_interval", type=int, default=100)
     parser.add_argument("--checkpoint", type=str, default="mappo_checkpoint")
     parser.add_argument("--env_change_prob_start", type=float, default=0.0001)
     parser.add_argument("--env_change_prob_end", type=float, default=0.2)
@@ -106,6 +104,7 @@ def main():
         user_matrix=users,
         max_steps=cfg.episode_length,
         user_walk_speed=1.0,
+        uav_k_factor=cfg.uav_k_factor,
     )
 
     obs_dim = int(env.get_observation(0).shape[0])

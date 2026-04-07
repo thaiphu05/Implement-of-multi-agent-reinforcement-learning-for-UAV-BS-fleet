@@ -1,6 +1,8 @@
 import numpy as np
 import torch
 from types import SimpleNamespace
+import argparse
+
 
 from Channel.channel_model import Channel_Model_mBS
 from Channel.channel_model import Channel_Model_UAV
@@ -10,15 +12,45 @@ from utils import calculate_rate
 from utils import infer_checkpoint
 from utils import plot_assignment_snapshot
 
+def build_hotspot_users(num_users=250, map_limit=1000.0, rate_threshold=20e6, rate_mbs=20e6, seed=42):
+    rng = np.random.default_rng(seed)
+    hotspot_centers = np.array([
+        [-500.0, -500.0],
+        [500.0, -500.0],
+        [-500.0, 500.0],
+        [500.0, 500.0],
+    ], dtype=np.float32)
+    hotspot_std = 300.0
+    
+    user_matrix = []
+    for center in hotspot_centers:
+        num_users_in_hotspot = num_users // len(hotspot_centers)
+        users_x = rng.normal(loc=center[0], scale=hotspot_std, size=num_users_in_hotspot)
+        users_y = rng.normal(loc=center[1], scale=hotspot_std, size=num_users_in_hotspot)
+        for x, y in zip(users_x, users_y):
+            x_clipped = np.clip(x, -map_limit + 20, map_limit - 20)
+            y_clipped = np.clip(y, -map_limit + 20, map_limit - 20)
+            if(x+y > 0):
+                user_matrix.append((float(x_clipped), float(y_clipped), rate_mbs))
+            else:
+                user_matrix.append((float(x_clipped), float(y_clipped), rate_threshold))
+    
+    # for _ in range(num_users):
+    #     x = float(rng.uniform(-1000.0, 1000.0))
+    #     y = float(rng.uniform(-1000.0, 1000.0))
+    #     user_matrix.append((x, y, 20e6)) 
+
+    return user_matrix
+
 def main_0():
     # Parameters adapted from the provided simulation section.
     # Note: noise power in the paper is written as 90 dBm, but receiver noise is
     # physically expected to be negative; use -90 dBm for a meaningful SNR.
-    channel_uav = Channel_Model_UAV(f_c=5.8e9, alpha=2.7, sigma2_dbm=-90)
+    channel_uav = Channel_Model_UAV(f_c=5.8e9, alpha=2.7, sigma2_dbm=-90, k_factor=50.0)
     channel_mbs = Channel_Model_mBS(f_c=2e9, sigma2_dbm=-90)
     
-    d_2D_UAV = 1  # Representative user distance in meters (within a 2x2 km area)
-    d_2D_mBS = 1000  # Representative user distance in meters (within a 2x2 km area)
+    d_2D_UAV = 500  # Representative user distance in meters (within a 2x2 km area)
+    d_2D_mBS = 1800  # Representative user distance in meters (within a 2x2 km area)
     p_tx_uav_dbm = 30  # UAV transmit power in dBm
     p_tx_mbs_dbm = 46  # mBS transmit power in dBm
     h_mBS = 35  # Typical suburban macro BS height in meters
@@ -38,18 +70,28 @@ def main_0():
     print(f"UAV  -> SNR: {snr_uav:.4f} (linear), {snr_uav_db:.2f} dB | Rate: {rate_uav / 1e6:.2f} Mbps")
     print(f"mBS  -> SNR: {snr_mbs:.4f} (linear), {snr_mbs_db:.2f} dB | Rate: {rate_mbs / 1e6:.2f} Mbps")
     
-    
+def parse_args():
+    parser = argparse.ArgumentParser("Minimal MAPPO training for MultiUAVEnv")
+    parser.add_argument("--main", type=int, default=0)
+    parser.add_argument("--checkpoint", type=str, default=100)
+    return parser.parse_args()
+
 def main():
+    args = parse_args()
+    if args.main == 0:
+        main_0()
+    elif args.main == 1:
+        main_1(check_point=args.checkpoint)
+    else:
+        print(f"Invalid main argument: {args.main}. Use 0 for channel test, 1 for inference.")
+
+def main_1(check_point=None):
     num_agents = 3
     num_users = 250
     episode_length = 300
     rng = np.random.default_rng(42)
 
-    user_matrix = []
-    for _ in range(num_users):
-        x = float(rng.uniform(-1000.0, 1000.0))
-        y = float(rng.uniform(-1000.0, 1000.0))
-        user_matrix.append((x, y, 20e6)) 
+    user_matrix = build_hotspot_users(num_users=num_users, seed=42)  # Generate user positions and rate requirements
 
     env = MultiUAVEnv(
         start_pos=(1000, 1000),
@@ -57,6 +99,7 @@ def main():
         user_matrix=user_matrix,
         max_steps=episode_length,
         user_walk_speed=1.0,
+        uav_k_factor=50.0,
     )
 
     obs_dim = int(env.get_observation(0).shape[0])
@@ -80,8 +123,8 @@ def main():
         act_space=act_dim,
         device=device,
     )
-
-    ckpt_info = infer_checkpoint("mappo_checkpoint_14700.pt", map_location=device)
+    name_checkpoint = f"mappo_checkpoint_{check_point}.pt" if check_point is not None else "mappo_checkpoint.pt"
+    ckpt_info = infer_checkpoint(name_checkpoint, map_location=device)
     if ckpt_info is None:
         raise FileNotFoundError("Checkpoint path is None")
 
@@ -143,4 +186,5 @@ def main():
     
 
 if __name__ == "__main__":
-    main_0()
+    
+    main()

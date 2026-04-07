@@ -403,9 +403,9 @@ def plot_assignment_snapshot(snapshot, save_path=None, show=True, dpi=140, uav_p
             user_positions[mbs_mask, 0],
             user_positions[mbs_mask, 1],
             s=16,
-            marker="o",
+            marker="v",
             facecolors="none",
-            edgecolors=mbs_user_color,
+            edgecolors="#1f77b4",
             linewidths=0.95,
             label="mBS-served users",
         )
