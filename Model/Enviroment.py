@@ -16,8 +16,9 @@ class MultiUAVEnv(gym.Env):
         max_steps=100,
         nums_UAV=1,
         user_matrix=None,
-        grid_size=10,
+        grid_size=30,
         user_walk_speed=1.0,
+        uav_k_factor=50.0,
     ):
         super(MultiUAVEnv, self).__init__()
         self.nums_UAV = nums_UAV
@@ -27,7 +28,7 @@ class MultiUAVEnv(gym.Env):
             (float(x), float(y), float(rate_threshold)) for x, y, rate_threshold in user_matrix
         ] if user_matrix is not None else []
         self.user_matrix = [User(x, y, rate_threshold) for x, y, rate_threshold in self.initial_user_specs]
-        self.channel_uav = Channel_Model_UAV(f_c=5.8e9, alpha=2.7, sigma2_dbm=-90)
+        self.channel_uav = Channel_Model_UAV(f_c=5.8e9, alpha=2.7, sigma2_dbm=-90, k_factor=uav_k_factor)
         self.channel_mbs = Channel_Model_mBS(f_c=2e9, sigma2_dbm=-90)
         self.UAV = UAV(height=120, velocity=5, p_tx_uav_dbm=30)
         self.mbs_height = 35
@@ -58,7 +59,7 @@ class MultiUAVEnv(gym.Env):
         self.time_slot = 0
         
 
-    def reset(self, *, seed=None, random_walk= False):
+    def reset(self, *, seed=None, random_walk=False):
         super().reset(seed=seed)
         self.uav_states = np.tile(self.start_pos, (self.nums_UAV, 1)).astype(np.float32)
         self.time_slot = 0
@@ -111,7 +112,7 @@ class MultiUAVEnv(gym.Env):
                 if np.all((next_state >= -1000) & (next_state <= 1000)):
                     self.uav_states[i] = next_state
 
-            # self._random_walk_users(time_step)
+            self._random_walk_users(time_step)
 
             current_uav_serviced, current_connected_users, current_mbs_served = self.evaluate_connections(
                 channel_samples=channel_samples
@@ -171,7 +172,7 @@ class MultiUAVEnv(gym.Env):
     def _sample_channel_state(self):
         num_users = len(self.user_matrix)
         return {
-            "uav_fading_power": (np.random.rayleigh(scale=1.0, size=(num_users, self.nums_UAV)).astype(np.float32) ** 2),
+            "uav_fading_power": self.channel_uav.sample_fading_power((num_users, self.nums_UAV)),
             "mbs_shadowing": np.random.normal(0.0, self.sigma_logf, size=(num_users,)).astype(np.float32),
         }
 
@@ -297,7 +298,7 @@ class MultiUAVEnv(gym.Env):
             user.x = float(np.clip(user.x, self.map_min, self.map_max))
             user.y = float(np.clip(user.y, self.map_min, self.map_max))
 
-    def generate_unsatisfied_heatmap(self, grid_size=None):
+    def generate_heatmap(self, grid_size=None):
         if grid_size is None:
             grid_size = self.grid_size
 
@@ -308,17 +309,30 @@ class MultiUAVEnv(gym.Env):
         map_min = -1000
         cell_size = (2.0 * 1000) / grid_size
 
-        for user in self.user_matrix:
-            if user.connected:
-                continue
+        total_counts = np.zeros((grid_size, grid_size), dtype=np.float32)
+        served_counts = np.zeros((grid_size, grid_size), dtype=np.float32)
 
+        for user in self.user_matrix:
             x_idx = int((user.x - map_min) / cell_size)
             y_idx = int((user.y - map_min) / cell_size)
             x_idx = int(np.clip(x_idx, 0, grid_size - 1))
             y_idx = int(np.clip(y_idx, 0, grid_size - 1))
-            heatmap[y_idx, x_idx] += 1.0
 
-        heatmap /= max(1, len(self.user_matrix))
+            total_counts[y_idx, x_idx] += 1.0
+            if user.connected:
+                served_counts[y_idx, x_idx] += 1.0
+
+        total_counts_norm = total_counts / max(1, len(self.user_matrix))
+        served_ratio = np.divide(
+            served_counts,
+            total_counts,
+            out=np.zeros_like(served_counts),
+            where=total_counts > 0,
+        )
+
+        # Blend user density and service ratio in each cell.
+        heatmap = 0.5 * total_counts_norm + 0.5 * served_ratio
+
         return heatmap.flatten()
 
     def get_observation(self, agent_idx):
@@ -329,7 +343,7 @@ class MultiUAVEnv(gym.Env):
         others_pos = np.delete(self.uav_states, agent_idx, axis=0) / 1000.0
         others_pos_flat = others_pos.flatten()
 
-        user_heatmap = self.generate_unsatisfied_heatmap(grid_size=self.grid_size)
+        user_heatmap = self.generate_heatmap(grid_size=self.grid_size)
         assignment_ratio = self._get_assignment_ratios()
         
         obs = np.concatenate([pos_k, pos_mbs, others_pos_flat, user_heatmap, assignment_ratio]).astype(np.float32)
@@ -339,7 +353,7 @@ class MultiUAVEnv(gym.Env):
 
         all_uav_pos = self.uav_states.flatten() / 1000.0
         mbs_pos = self.mBS_pos / 1000.0
-        heatmap = self.generate_unsatisfied_heatmap(grid_size=self.grid_size)
+        heatmap = self.generate_heatmap(grid_size=self.grid_size)
         assignment_ratio = self._get_assignment_ratios()
         state = np.concatenate([all_uav_pos, mbs_pos, heatmap, assignment_ratio]).astype(np.float32)
         return state
