@@ -49,11 +49,11 @@ def main_0():
     channel_uav = Channel_Model_UAV(f_c=5.8e9, alpha=2.7, sigma2_dbm=-90, k_factor=50.0)
     channel_mbs = Channel_Model_mBS(f_c=2e9, sigma2_dbm=-90)
     
-    d_2D_UAV = 500  # Representative user distance in meters (within a 2x2 km area)
+    d_2D_UAV = 450  # Representative user distance in meters (within a 2x2 km area)
     d_2D_mBS = 1800  # Representative user distance in meters (within a 2x2 km area)
     p_tx_uav_dbm = 30  # UAV transmit power in dBm
     p_tx_mbs_dbm = 46  # mBS transmit power in dBm
-    h_mBS = 35  # Typical suburban macro BS height in meters
+    h_mBS = 15  # Typical suburban macro BS height in meters
     h_UAV = 120  # UAV height in meters
     sigma_logf = 2  # Shadowing std from the papermBS
     
