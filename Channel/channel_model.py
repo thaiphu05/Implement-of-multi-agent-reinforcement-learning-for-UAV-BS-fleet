@@ -36,6 +36,11 @@ class Channel_Model_UAV:
         for idx in np.ndindex(samples.shape):
             samples[idx] = self._sample_rician_power()
         return samples
+    def rayleigh_fading_power(self, size=None):
+        """Sample Rayleigh fading power |h|^2 with optional output shape."""
+        if size is None:
+            return np.random.rayleigh(scale=1.0)
+        return np.random.rayleigh(scale=1.0, size=size)
 
     def get_path_loss_gain(self, d_2D, h_UAV, fading_power=None):
         """
@@ -48,7 +53,8 @@ class Channel_Model_UAV:
 
         if fading_power is None:
             
-            fading_power = self._sample_rician_power()
+            # fading_power = self._sample_rician_power()
+            fading_power = self.rayleigh_fading_power() 
 
         path_loss_gain = fading_power * self.theta_linear * ((d_3D / self.d_ref) ** (-self.alpha))
 
@@ -101,7 +107,7 @@ class Channel_Model_mBS:
         """
         L_dB = self.path_loss_db(d_2D, h_mBS)
         log_f = np.random.normal(0, sigma_logf) if shadowing_db is None else shadowing_db
-        snr_db = p_tx_dbm - L_dB - log_f - 8 - self.sigma2_dbm
+        snr_db = p_tx_dbm - L_dB - log_f - self.sigma2_dbm
         snr_linear = 10 ** (snr_db / 10)
         return snr_linear
         

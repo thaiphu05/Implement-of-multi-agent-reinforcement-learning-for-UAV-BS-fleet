@@ -31,7 +31,7 @@ class MultiUAVEnv(gym.Env):
         self.channel_uav = Channel_Model_UAV(f_c=5.8e9, alpha=2.7, sigma2_dbm=-90, k_factor=uav_k_factor)
         self.channel_mbs = Channel_Model_mBS(f_c=2e9, sigma2_dbm=-90)
         self.UAV = UAV(height=120, velocity=5, p_tx_uav_dbm=30)
-        self.mbs_height = 35
+        self.mbs_height = 15
         self.p_tx_mbs_dbm = 46
         self.sigma_logf = 2
         self.user_walk_speed = float(user_walk_speed)
@@ -112,7 +112,7 @@ class MultiUAVEnv(gym.Env):
                 if np.all((next_state >= -1000) & (next_state <= 1000)):
                     self.uav_states[i] = next_state
 
-            self._random_walk_users(time_step)
+            # self._random_walk_users(time_step)
 
             current_uav_serviced, current_connected_users, current_mbs_served = self.evaluate_connections(
                 channel_samples=channel_samples
@@ -129,7 +129,7 @@ class MultiUAVEnv(gym.Env):
                 gt = 0
 
             rewards = []
-            wl = 0.7
+            wl = 0.5
             # crowding_penalties = self._compute_crowding_penalties()
             for i in range(self.nums_UAV):
                 if current_uav_serviced[i] > prev_uav_serviced[i]:
@@ -172,7 +172,8 @@ class MultiUAVEnv(gym.Env):
     def _sample_channel_state(self):
         num_users = len(self.user_matrix)
         return {
-            "uav_fading_power": self.channel_uav.sample_fading_power((num_users, self.nums_UAV)),
+            # "uav_fading_power": self.channel_uav.sample_fading_power((num_users, self.nums_UAV)),
+            "uav_fading_power": self.channel_uav.rayleigh_fading_power( size=(num_users, self.nums_UAV))**2,
             "mbs_shadowing": np.random.normal(0.0, self.sigma_logf, size=(num_users,)).astype(np.float32),
         }
 
