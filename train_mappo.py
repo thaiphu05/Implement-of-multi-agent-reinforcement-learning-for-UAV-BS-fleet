@@ -396,8 +396,7 @@ def transfer_train(file_pt, num_episodes):
         )
 
         if episode % cfg.save_interval == 0:
-            policy.save(cfg.checkpoint + f"_transfer____{episode}" + ".pt")
-            # 0 - Rician, 1 - Rayleigh
+            policy.save(cfg.checkpoint + f"_transfer_{episode}" + ".pt")
 
     policy.save(cfg.checkpoint + "_transfer_final.pt")
     print(f"Transfer training finished. Saved checkpoint to {cfg.checkpoint}_transfer_final.pt")

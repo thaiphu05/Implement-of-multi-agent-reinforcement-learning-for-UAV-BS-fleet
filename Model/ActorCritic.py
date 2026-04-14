@@ -6,11 +6,6 @@ from utils import MLPBase, ACTLayer
 
 class R_Actor(nn.Module):
     """
-    Actor network for MAPPO (Multi-Agent Proximal Policy Optimization).
-    
-    Maps observations to action logits for discrete action spaces.
-    Supports deterministic (greedy) and stochastic (sampled) action selection.
-    
     Args:
         obs_shape: observation dimension or shape
         action_dim: number of discrete actions
@@ -73,8 +68,6 @@ class R_Actor(nn.Module):
     
     def forward(self, obs, available_actions=None, deterministic=False):
         """
-        Forward pass for action selection.
-        
         Args:
             obs: (batch_size, obs_dim) observation tensor or numpy array
             deterministic: if True, return argmax action; else sample from distribution
@@ -83,40 +76,26 @@ class R_Actor(nn.Module):
             actions: (batch_size,) sampled/argmax actions
             action_log_probs: (batch_size,) log probabilities of selected actions
         """
-        # Convert to tensor and move to device
         obs = self._to_tensor(obs, dtype=torch.float32)
-        
-        # Ensure shape is at least 2D (batch_size, obs_dim)
         if obs.dim() == 1:
             obs = obs.unsqueeze(0)
-        
-        # Extract features via MLPBase
         features = self.base(obs)
         
-        # Get action logits via ACTLayer
         action_logits = self.act(features)
         action_logits = self._apply_available_actions_mask(action_logits, available_actions)
-        
-        # Create categorical distribution
         dist = torch.distributions.Categorical(logits=action_logits)
         
-        # Sample action or take argmax
         if deterministic:
             actions = action_logits.argmax(dim=-1)
         else:
             actions = dist.sample()
         
-        # Get log probabilities
         action_log_probs = dist.log_prob(actions)
         
         return actions, action_log_probs
     
     def evaluate_actions(self, obs, actions, available_actions=None):
         """
-        Evaluate log probabilities and entropy of given actions.
-        
-        Used during training to compute PPO loss.
-        
         Args:
             obs: (batch_size, obs_dim) observations
             actions: (batch_size,) actions taken
@@ -125,16 +104,11 @@ class R_Actor(nn.Module):
             action_log_probs: (batch_size,) log probabilities of actions
             dist_entropy: scalar, average entropy of action distribution
         """
-        # Convert to tensors
         obs = self._to_tensor(obs, dtype=torch.float32)
         actions = self._to_tensor(actions, dtype=torch.long)
-        
-        # Extract features
         features = self.base(obs)
         action_logits = self.act(features)
         action_logits = self._apply_available_actions_mask(action_logits, available_actions)
-        
-        # Create distribution and compute log probs + entropy
         dist = torch.distributions.Categorical(logits=action_logits)
         action_log_probs = dist.log_prob(actions)
         dist_entropy = dist.entropy().mean()
@@ -144,11 +118,6 @@ class R_Actor(nn.Module):
 
 class R_Critic(nn.Module):
     """
-    Critic network for MAPPO.
-    
-    Estimates state value V(s) from observations.
-    For multi-agent MAPPO: critic sees all agents' observations (centralized).
-    
     Args:
         obs_shape: observation dimension (typically concatenated from all agents)
         hidden_dim: hidden layer dimension (default: 512)
@@ -169,7 +138,6 @@ class R_Critic(nn.Module):
         self.device = device
         self.tpdv = dict(dtype=torch.float32, device=device)
         
-        # Feature extractor
         self.base = MLPBase(
             obs_shape=obs_shape,
             hidden_dim=hidden_dim,
@@ -179,7 +147,6 @@ class R_Critic(nn.Module):
             activation=activation
         )
         
-        # Value output layer
         self.v_out = nn.Linear(self.base.output_dim, 1)
         if use_orthogonal:
             nn.init.orthogonal_(self.v_out.weight, gain=1.0)
@@ -190,16 +157,13 @@ class R_Critic(nn.Module):
         self.to(device)
     
     def forward(self, obs):
-        """
-        Forward pass to estimate state value.
-        
+        """        
         Args:
             obs: (batch_size, obs_dim) observation tensor or numpy array
             
         Returns:
             values: (batch_size,) value estimates
         """
-        # Convert to tensor and move to device
         if isinstance(obs, np.ndarray):
             obs = torch.FloatTensor(obs).to(**self.tpdv)
         elif not isinstance(obs, torch.Tensor):
@@ -207,11 +171,8 @@ class R_Critic(nn.Module):
         else:
             obs = obs.to(**self.tpdv)
         
-        # Ensure shape is at least 2D
         if obs.dim() == 1:
             obs = obs.unsqueeze(0)
-        
-        # Extract features and compute value
         features = self.base(obs)
         values = self.v_out(features).squeeze(-1)
         

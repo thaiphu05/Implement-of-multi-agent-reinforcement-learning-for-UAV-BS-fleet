@@ -37,17 +37,11 @@ class MultiUAVEnv(gym.Env):
         self.user_walk_speed = float(user_walk_speed)
         self.map_min = -1000.0
         self.map_max = 1000.0
-        self.min_uav_separation = 250.0
-        self.crowding_penalty_coef = 0.25
         self.last_uav_serviced_counts = np.zeros(self.nums_UAV, dtype=np.float32)
         self.last_connected_users = 0
-        self.last_mbs_served_users = 0
-        
+        self.last_mbs_served_users = 0      
         self.action_space = spaces.MultiDiscrete([5] * self.nums_UAV)
-        
-        # Calculate observation dimension:
-        # pos_k (2) + pos_mbs (2) + others_pos (2*(nums_UAV-1))
-        # + user_heatmap (grid_size^2) + assignment_ratio (nums_UAV + 1)
+
         obs_dim = 2 + 2 + 2 * (self.nums_UAV - 1) + self.grid_size * self.grid_size + (self.nums_UAV + 1)
         self.observation_space = spaces.Box(low=-1, high=1, shape=(self.nums_UAV, obs_dim), dtype=np.float32)
         share_obs_dim = 2 * self.nums_UAV + 2 + self.grid_size * self.grid_size + (self.nums_UAV + 1)
@@ -74,8 +68,8 @@ class MultiUAVEnv(gym.Env):
         self.last_uav_serviced_counts = init_uav_serviced.astype(np.float32)
         self.last_connected_users = int(init_connected_users)
         self.last_mbs_served_users = int(init_mbs_served)
-        if random_walk:
-            self._random_walk_users(time_step=1)
+        # if random_walk:
+        #     self._random_walk_users(time_step=1)
         
         observations = np.stack(
             [self.get_observation(i) for i in range(self.nums_UAV)],
@@ -112,7 +106,7 @@ class MultiUAVEnv(gym.Env):
                 if np.all((next_state >= -1000) & (next_state <= 1000)):
                     self.uav_states[i] = next_state
 
-            # self._random_walk_users(time_step)
+            self._random_walk_users(time_step)
 
             current_uav_serviced, current_connected_users, current_mbs_served = self.evaluate_connections(
                 channel_samples=channel_samples
@@ -130,7 +124,6 @@ class MultiUAVEnv(gym.Env):
 
             rewards = []
             wl = 0.5
-            # crowding_penalties = self._compute_crowding_penalties()
             for i in range(self.nums_UAV):
                 if current_uav_serviced[i] > prev_uav_serviced[i]:
                     lt_k = 1
@@ -151,29 +144,13 @@ class MultiUAVEnv(gym.Env):
                 "connected_users": int(current_connected_users),
                 "uav_serviced_counts": current_uav_serviced.astype(np.int32),
                 "mbs_served_users": int(current_mbs_served),
-                # "uav_crowding_penalty": crowding_penalties.astype(np.float32),
             }
             return observations, np.asarray(rewards, dtype=np.float32), False, truncated, info
-
-    def _compute_crowding_penalties(self):
-        penalties = np.zeros((self.nums_UAV,), dtype=np.float32)
-        if self.nums_UAV <= 1:
-            return penalties
-
-        for i in range(self.nums_UAV):
-            for j in range(self.nums_UAV):
-                if i == j:
-                    continue
-                dist = np.linalg.norm(self.uav_states[i] - self.uav_states[j])
-                if dist < self.min_uav_separation:
-                    penalties[i] += (self.min_uav_separation - dist) / self.min_uav_separation
-        return penalties
-
+        
     def _sample_channel_state(self):
         num_users = len(self.user_matrix)
         return {
-            # "uav_fading_power": self.channel_uav.sample_fading_power((num_users, self.nums_UAV)),
-            "uav_fading_power": self.channel_uav.rayleigh_fading_power( size=(num_users, self.nums_UAV))**2,
+            "uav_fading_power": self.channel_uav.sample_fading_power((num_users, self.nums_UAV)),
             "mbs_shadowing": np.random.normal(0.0, self.sigma_logf, size=(num_users,)).astype(np.float32),
         }
 

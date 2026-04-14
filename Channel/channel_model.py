@@ -21,7 +21,6 @@ class Channel_Model_UAV:
         self.sigma2 = 10 ** ((sigma2_dbm - 30) / 10)
 
     def _sample_rician_power(self):
-        """Sample |h|^2 for a unit-average-power Rician channel."""
         k = max(self.k_factor, 0.0)
         los_amp = np.sqrt(k / (k + 1.0))
         nlos_scale = np.sqrt(1.0 / (2.0 * (k + 1.0)))
@@ -29,7 +28,6 @@ class Channel_Model_UAV:
         return float(np.abs(h) ** 2)
 
     def sample_fading_power(self, size=None):
-        """Sample Rician fading power |h|^2 with optional output shape."""
         if size is None:
             return self._sample_rician_power()
         samples = np.empty(size, dtype=np.float32)
@@ -37,7 +35,6 @@ class Channel_Model_UAV:
             samples[idx] = self._sample_rician_power()
         return samples
     def rayleigh_fading_power(self, size=None):
-        """Sample Rayleigh fading power |h|^2 with optional output shape."""
         if size is None:
             return np.random.rayleigh(scale=1.0)
         return np.random.rayleigh(scale=1.0, size=size)
@@ -53,8 +50,7 @@ class Channel_Model_UAV:
 
         if fading_power is None:
             
-            # fading_power = self._sample_rician_power()
-            fading_power = self.rayleigh_fading_power() 
+            fading_power = self._sample_rician_power()
 
         path_loss_gain = fading_power * self.theta_linear * ((d_3D / self.d_ref) ** (-self.alpha))
 
@@ -89,9 +85,7 @@ class Channel_Model_mBS:
         :return: Path loss in dB
         """
         d_3D = np.sqrt(d_2D**2 + h_mBS**2) / 1000.0
-        # Avoid log10(0) when user is at the same horizontal position as mBS.
         d_3D = np.maximum(d_3D, 1e-6)
-        # The empirical formula expects carrier frequency in MHz.
         f_c_mhz = self.f_c / 1e6
         L_dB = 40 * (1 - 4e-3 * h_mBS) * np.log10(d_3D) - 18 * np.log10(h_mBS) + 21 * np.log10(f_c_mhz) + 80
         return L_dB

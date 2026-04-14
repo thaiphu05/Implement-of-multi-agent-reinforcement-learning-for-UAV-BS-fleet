@@ -205,44 +205,6 @@ class RNNLayer(nn.Module):
         """        
         output, hidden_state = self.rnn(obs, hidden_state)
         return output, hidden_state
-# def compute_gae(rewards, values, next_value, gamma=0.99, gae_lambda=0.95):
-#     """
-#     Compute Generalized Advantage Estimation (GAE).
-    
-#     Args:
-#         rewards: (T, N) reward tensor
-#         values: (T, N) value estimates
-#         next_value: (N,) value of next state
-#         gamma: discount factor
-#         gae_lambda: GAE lambda parameter
-    
-#     Returns:
-#         advantages: (T, N) advantage estimates
-#         returns: (T, N) target returns
-#     """
-#     T, N = rewards.shape
-#     advantages = torch.zeros_like(rewards)
-#     gae = torch.zeros(N, dtype=rewards.dtype, device=rewards.device)
-    
-#     next_val = next_value
-#     for t in reversed(range(T)):
-#         delta = rewards[t] + gamma * next_val - values[t]
-#         gae = delta + gamma * gae_lambda * gae
-#         advantages[t] = gae
-#         next_val = values[t]
-    
-#     returns = advantages + values
-#     return advantages, returns
-
-
-# def huber_loss(values, targets, huber_delta=10.0):
-#     """Compute Huber loss."""
-#     diff = (targets - values).abs()
-#     loss = torch.where(diff < huber_delta, 0.5 * diff ** 2, huber_delta * (diff - 0.5 * huber_delta))
-#     return loss.mean()
-
-
-
 
 def infer_checkpoint(path=None, map_location="cpu"):
     """Load a checkpoint and expose actor/critic weights for inference.
@@ -340,7 +302,6 @@ def plot_assignment_snapshot(snapshot, save_path=None, show=True, dpi=140, uav_p
 
     fig, axes = plt.subplots(1, 2, figsize=(12, 5), constrained_layout=True)
 
-    # Left: raw users + mBS-served users only (pre-assignment style view)
     ax0 = axes[0]
     ax0.scatter(
         user_positions[:, 0],
